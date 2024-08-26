@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from sklearn.base import TransformerMixin
 from scipy.linalg import eigh, norm
 from sklearn.decomposition import PCA
@@ -30,9 +31,14 @@ class MCCA(TransformerMixin):
 
     # Assuming X with subs in diff. length (voxels/channels)
     def fit(self, X):
+
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
         R_kl, R_kk = self._compute_cross_covariance(X)
 
         # TODO: regularization to be added in
+        # solving non-positive definite problem in scipy linalg\_decomp (Solving generalized eigenvalue problem)
+        R_kk = R_kk + 1e-9 * np.eye(R_kk.shape[0])
 
         p, h_all = eigh(R_kl, R_kk, subset_by_index=(self.size - self.n_ccs, self.size - 1))
         # h = np.flip(h, axis=1).reshape((n_subjects, n_pcs, self.n_ccs))
@@ -146,7 +152,34 @@ def zscore(data):
 #     whitened_data = np.dot(data_centered, whitening_matrix)
 #     return whitened_data
 
+# def whiten(data):
+#     # Center the data
+#     whitened_data = np.empty_like(data, dtype=object)
+#     for sub in data:
+#         data_centered = data[sub] - np.mean(data[sub], axis=0)
+#
+#     # in case there is nan calculated
+#     # std_dev = np.nanstd(data_centered, axis=0)
+#     # std_dev[std_dev == 0] = 1e-10
+#     # Apply PCA
+#         pca = PCA(whiten=True)
+#         whitened_data[sub] = pca.fit_transform(data_centered)
+#
+#     return whitened_data
 def whiten(data):
+    # Center the data
+    data_centered = data - np.mean(data, axis=0)
+
+    # in case there is nan calculated
+    # std_dev = np.nanstd(data_centered, axis=0)
+    # std_dev[std_dev == 0] = 1e-10
+    # Apply PCA
+    pca = PCA(n_components=60,whiten=True)
+    whitened_data = pca.fit_transform(data_centered)
+
+    return whitened_data
+
+def PCA_60(data):
     # Center the data
     data_centered = data - np.mean(data, axis=0)
 
