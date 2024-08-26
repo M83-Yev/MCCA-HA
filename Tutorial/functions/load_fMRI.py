@@ -1,7 +1,8 @@
+import itertools
 import os
 import nilearn
 import numpy as np
-from nilearn import datasets, masking
+from nilearn import masking
 import nibabel as nib
 
 
@@ -140,7 +141,7 @@ def load_Haxby(data_dir, sub_range=range(1, 7), fetch_data=False, individual_mas
 
 
 # def reorder(ref_label, subject_label, subject_data):
-def reorder(data_dir, X_array, Y_array, nr_blocks_selected=None):
+def reorder(X_array, Y_array, data_dir=None, nr_blocks_selected=None):
     """
     Reorder the subject data into same stimuli order. Because each subject had individual random order stimuli within
     one Block, we arrange them into a single subject data (default: the first subject sequence)
@@ -162,53 +163,124 @@ def reorder(data_dir, X_array, Y_array, nr_blocks_selected=None):
     size_type = 9
     num_blocks = nr_blocks_selected if nr_blocks_selected is not None else nr_blocks
 
-    X_reordered = np.empty_like(X_array, dtype=object)
-    Y_reordered = np.empty_like(Y_array, dtype=object)
+    # Combinations of blocks
+    block_combi = list(itertools.combinations(range(nr_blocks), num_blocks))
 
-    # set first subject data label as reference
-    ref_label = Y_array[0]
-    # get trail label order (no-repeat)
-    ref_order = ref_label[0:len(ref_label):size_type]
+    X_reordered_list = []
+    Y_reordered_list = []
 
-    for i, (sub, label) in enumerate(zip(X_array, Y_array)):
-        sub_order = label[0:len(ref_label):size_type]
-        subject_data = sub.reshape(nr_blocks, nr_type, size_type, -1)  # (11,7,9,Voxel)
+    for combi in block_combi:
+        X_reordered = np.empty_like(X_array, dtype=object)
+        Y_reordered = np.empty_like(Y_array, dtype=object)
 
-        sub_label_reordered = []
-        sub_data_reordered = []
+        # indexing the corresponding blocks out of the whole data
+        block_idx = [np.hstack(np.array(range(block * nr_type * size_type, (block + 1) * nr_type * size_type))) for
+                     block in combi]
+        block_idx = np.concatenate(block_idx, axis=0)
 
-        for block in range(num_blocks):
-            ref_order_block = ref_order[(0 + block * nr_type): ((1 + block) * nr_type)]
-            sub_order_block = sub_order[(0 + block * nr_type): ((1 + block) * nr_type)]
+        # set first subject data label as reference
+        ref_label = Y_array[0][block_idx]
+        # get trail label order (no-repeat)
+        ref_order = ref_label[0:len(ref_label):size_type]  # all labels for all blocks
 
-            sub_data_block = subject_data[block, :, :, :]
+        for i, (sub, label) in enumerate(zip(X_array, Y_array)):
+            sub_order = label[0:len(ref_label):size_type]
+            sub = sub[block_idx,]
+            subject_data = sub.reshape(num_blocks, nr_type, size_type, -1)  # (blocks,7,9,Voxel)
 
-            # ref index mapping
-            ref_map = {label: idx for idx, label in enumerate(ref_order_block)}
+            sub_label_reordered = []
+            sub_data_reordered = []
 
-            # reorder subject label within block
-            sort_idx = np.argsort([ref_map[label] for label in sub_order_block])
+            for block in range(num_blocks):
+                ref_order_block = ref_order[(0 + block * nr_type): ((1 + block) * nr_type)]
+                sub_order_block = sub_order[(0 + block * nr_type): ((1 + block) * nr_type)]
 
-            sub_label_block_reordered = [sub_order_block[idx] for idx in sort_idx]
-            sub_data_block_reordered = sub_data_block[sort_idx, :, :]
+                sub_data_block = subject_data[block, :, :, :]
 
-            # reconstruct the sublabel within the single block (repeat labels)
-            sub_label_block_reordered = np.repeat(sub_label_block_reordered, size_type)
-            sub_label_reordered.append(sub_label_block_reordered)
+                # ref index mapping
+                ref_map = {label: idx for idx, label in enumerate(ref_order_block)}
 
-            # Reshape the reordered data to (size_blocks, -1) before appending
-            sub_data_block_reordered = sub_data_block_reordered.reshape(size_blocks, -1)
-            sub_data_reordered.append(sub_data_block_reordered)
+                # reorder subject label within block
+                sort_idx = np.argsort([ref_map[label] for label in sub_order_block])
 
-        Y_reordered[i] = np.vstack(sub_label_reordered).reshape(-1)
-        X_reordered[i] = np.vstack(sub_data_reordered)
+                sub_label_block_reordered = [sub_order_block[idx] for idx in sort_idx]
+                sub_data_block_reordered = sub_data_block[sort_idx, :, :]
 
-    print("\t\t Saving reordered data...")
-    np.save(os.path.join(data_dir, 'func_data_reordered.npy'), X_reordered)
-    np.save(os.path.join(data_dir, 'labels_reordered.npy'), Y_reordered)
-    print("\t\t Saved")
+                # reconstruct the sublabel within the single block (repeat labels)
+                sub_label_block_reordered = np.repeat(sub_label_block_reordered, size_type)
+                sub_label_reordered.append(sub_label_block_reordered)
 
-    return X_reordered, Y_reordered
+                # Reshape the reordered data to (size_blocks, -1) before appending
+                sub_data_block_reordered = sub_data_block_reordered.reshape(size_blocks, -1)
+                sub_data_reordered.append(sub_data_block_reordered)
+
+            Y_reordered[i] = np.vstack(sub_label_reordered).reshape(-1)
+            X_reordered[i] = np.vstack(sub_data_reordered)
+        X_reordered_list.append(X_reordered)
+        Y_reordered_list.append(Y_reordered)
+
+    # print("\t\t Saving reordered data...")
+    # np.save(os.path.join(data_dir, 'func_data_reordered_list.npy'), X_reordered_list)
+    # np.save(os.path.join(data_dir, 'labels_reordered_list.npy'), Y_reordered_list)
+    # print("\t\t Saved")
+
+    return X_reordered_list, Y_reordered_list
+
+
+# def data_selector(X_reordered, Y_reordered, nr_selection):
+#     """
+#     Data_selector is used to select the data blocks, in order to be able to choose the amount of training data or
+#     testing data.
+#
+#     Parameters:
+#         X_reordered: list of numpy arrays in shape (repetitions, voxels). repetitions = nr_bolocks * samples of block
+#         Y_reordered:
+#         train_nr:
+#         test_nr:
+#
+#
+#     return: X_selected, Y_selected
+#     """
+#
+#     nr_blocks = 11  # 11 as Haxby data has 11 blocks for every subject
+#     size_blocks = 63
+#
+#     X_selected = []
+#     Y_selected = []
+#     for (x, y) in zip(X_reordered, Y_reordered):
+#         x_reshaped = x.reshape(nr_blocks, size_blocks, x.shape[2])
+#         y_reshaped = y.reshape(nr_blocks, size_blocks)
+#
+#         x_selected = x_reshaped[: nr_selection]
+#         y_selected = y_reshaped[: nr_selection]
+#
+#         X_selected.append(x_selected)
+#         Y_selected.append(y_selected)
+#
+#     return X_selected, Y_selected
+
+def data_selector(X_reordered, Y_reordered, nr_selection):
+    """
+    Data_selector is used to select the data blocks, in order to be able to choose the amount of training data or
+    testing data.
+
+    Parameters:
+        X_reordered: list of numpy arrays in shape (repetitions, voxels). repetitions = nr_bolocks * samples of block
+        Y_reordered:
+        train_nr:
+        test_nr:
+
+
+    return: X_selected, Y_selected
+    """
+
+    nr_blocks = 11  # 11 as Haxby data has 11 blocks for every subject
+    size_blocks = 63
+
+    X_selected = [X[:nr_selection * size_blocks, :] for X in X_reordered]
+    Y_selected = [Y[:nr_selection * size_blocks] for Y in Y_reordered]
+
+    return X_selected, Y_selected
 
 
 def pad_arrays(arrays, fill_value=0):
