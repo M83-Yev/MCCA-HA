@@ -1,0 +1,6 @@
+MCCA:
+  n_components_mcca: 10
+  r: 0
+
+Prep:
+  main_path: 'G:\\Data\\word_obj'
